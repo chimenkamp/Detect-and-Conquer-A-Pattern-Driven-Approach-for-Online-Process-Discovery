@@ -1,165 +1,91 @@
-import datetime
-import faulthandler
 import sys
-import time
-from typing import Optional
 
-import pm4py
 from PyQt5.QtCore import QSize, QPoint, Qt, QSettings, QFile, QTextStream, pyqtSlot
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QApplication, QMainWindow, QSplitter, QVBoxLayout, QTableWidget, QTableWidgetItem, QWidget, \
-    QHeaderView, QTabWidget, QAction, QFileDialog, QMessageBox
-from graphviz import Digraph
-from src.parsers.parse_petri_net import identify_patterns
-from src.ui.ui_generic_elements import TransitionGraphicsItem
-from src.ui.ui_petri_net_view import PetriNetEditorView
-from src.utils.color_iterator import ColorIterator
-from src.utils.petri_net_renderer import render_petri_net
-from tests.parse_petri_net_test_file import online_order_petri_net
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, \
+    QHeaderView, QTabWidget, QAction, QPushButton, QLabel, QGridLayout
 
-
-class CoolTransition(pm4py.PetriNet.Transition):
-    def __init__(self, name: str):
-        super().__init__(name)
-
-
-def load_and_parse_petri_net() -> Digraph:
-    net = online_order_petri_net()
-    # net, im, fm = pm4py.read_pnml("model2012.pnml")
-
-    seq, and_p, or_p = identify_patterns(net.places, net.transitions, net.arcs)
-
-    color_iterator = ColorIterator()
-
-    for pattern in seq:
-        col: str = next(color_iterator)
-        for elem in pattern:
-            elem.properties["color"] = col
-
-    return render_petri_net(net, False)
-
-
-class TerminalView(QWidget):
-    def __init__(self, columns: list[str]) -> None:
-        super().__init__()
-        self.columns = columns
-        self.init_ui()
-
-    def init_ui(self) -> None:
-        self.layout = QVBoxLayout()
-        self.table = QTableWidget()
-        self.layout.addWidget(self.table)
-        self.setLayout(self.layout)
-
-        self.table.setRowCount(0)
-        self.table.setColumnCount(len(self.columns))
-        self.table.setHorizontalHeaderLabels(self.columns)
-
-        self.set_table_style()
-
-    def set_table_style(self) -> None:
-        self.table.setAlternatingRowColors(True)
-        self.table.setStyleSheet("color: black; alternate-background-color: #f0f0f0; background-color: #ffffff;")
-
-        font = QFont("Arial", 12, QFont.Bold)
-        self.table.setFont(font)
-
-        header_font = QFont("Arial", 14, QFont.Bold)
-        self.table.horizontalHeader().setFont(header_font)
-        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-
-        self.table.verticalHeader().setDefaultSectionSize(40)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-
-    def add_row(self, data: list[str]) -> None:
-        row_position = self.table.rowCount()
-        self.table.insertRow(row_position)
-
-        for column, value in enumerate(data):
-            self.table.setItem(row_position, column, QTableWidgetItem(value))
-
-        self.table.scrollToBottom()
-
-
-def open_and_parse_file(file_name: str) -> Optional[Digraph]:
-    if file_name.endswith(".pnml"):
-        net, im, fm = pm4py.read_pnml(file_name)
-        return render_petri_net(net, False)
-
-
-class PetriNetTab(QWidget):
-    def __init__(self, current: int) -> None:
-        super().__init__()
-
-        if current == 0:
-            self.init_editor(load_and_parse_petri_net())
-        else:
-            file_name, _ = QFileDialog.getOpenFileName(self, "Open Petri Net File", "",
-                                                       "Petri Net Files (*.pnml *.xml);;All Files (*)")
-            if not file_name:
-                raise FileNotFoundError("No file selected. Please select a valid Petri net file.")
-
-            dot: Optional[Digraph] = open_and_parse_file(file_name)
-            if dot is None:
-                raise ValueError("Failed to parse Petri net file.")
-            self.init_editor(dot)
-
-    def init_editor(self, dot: Digraph) -> None:
-        time.sleep(3)
-        self.graph_view = PetriNetEditorView(dot)
-        self.terminal_view = TerminalView(['Timestamp', 'CaseID', 'Activity'])
-
-        self.splitter = QSplitter(Qt.Vertical)
-        self.splitter.addWidget(self.graph_view)
-        self.splitter.addWidget(self.terminal_view)
-        self.splitter.setSizes([1080, 360])
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.splitter)
-        self.setLayout(layout)
-
-        self.graph_view.scene.on_transition_fired.connect(self.on_transition_fired)
-
-    @pyqtSlot(TransitionGraphicsItem)
-    def on_transition_fired(self, transition: TransitionGraphicsItem) -> None:
-        activity: str = transition.text_item.toPlainText() if transition.text_item else "No Activity"
-        self.terminal_view.add_row([str(datetime.datetime.now()), "sfefwef", activity])
+from src.ui.ui_functions import load_widget_classes
+from src.ui.ui_stylesheet import UI_WIDGET_BUTTON_STYLE
+from src.ui.widgets.abstract_widget import AbstractWidget
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Petri Net Editor")
+        self.setWindowTitle("Process Mining Tool Box")
         self.setGeometry(100, 100, 1920, 1080)
 
-        self.tabs = QTabWidget()
-        self.setCentralWidget(self.tabs)
         self.settings = QSettings('petri_net_editor', 'pn_editor')
+        self.tabs = QTabWidget()
+
+        self.overview_widget = OverviewWidget(self)
+        self.setCentralWidget(self.overview_widget)
 
         self.resize(self.settings.value("size", QSize(1920, 1080)))
         self.move(self.settings.value("pos", QPoint(100, 100)))
-
-        self.add_tab()
 
         self.init_menu()
 
     def init_menu(self) -> None:
         menubar = self.menuBar()
         file_menu = menubar.addMenu('File')
-
         new_tab_action = QAction('New Tab', self)
         new_tab_action.setShortcut('Ctrl+T')
-        new_tab_action.triggered.connect(self.add_tab)
         file_menu.addAction(new_tab_action)
-
-    def add_tab(self) -> None:
-        new_tab = PetriNetTab(self.tabs.count())
-        self.tabs.addTab(new_tab, f"Tab {self.tabs.count() + 1}")
 
     def closeEvent(self, e) -> None:
         self.settings.setValue("size", self.size())
         self.settings.setValue("pos", self.pos())
         e.accept()
+
+
+class OverviewWidget(QWidget):
+    def __init__(self, main_window: MainWindow) -> None:
+        super().__init__()
+        self.main_window = main_window
+        self.init_ui()
+
+    def init_ui(self) -> None:
+        layout = QGridLayout()
+        widget_classes = load_widget_classes()
+
+        for index, widget_class in enumerate(widget_classes):
+            instance = widget_class()
+            tile_button = self.create_tile(widget_class.__name__, instance)
+            layout.addWidget(tile_button, index // 2, index % 2)
+
+        self.setLayout(layout)
+
+    def create_tile(self, title: str, widget_instance: AbstractWidget) -> QPushButton:
+        """
+        Create a tile that acts as a button. The button contains the title and
+        will open the corresponding widget when clicked.
+
+        :param title: The title of the widget to display on the tile.
+        :param widget_instance: The instance of the widget to open on click.
+        :return: A QPushButton configured as a tile.
+        """
+        tile_button = QPushButton()
+        tile_button.setFixedSize(150, 100)
+        tile_button.setStyleSheet(UI_WIDGET_BUTTON_STYLE)
+
+        tile_layout = QVBoxLayout(tile_button)
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignCenter)
+        tile_layout.addWidget(title_label)
+
+        tile_button.clicked.connect(lambda: self.open_widget(widget_instance))
+        return tile_button
+
+    def open_widget(self, widget_instance: AbstractWidget) -> None:
+        """
+        Open the selected widget in the main window's tab area.
+
+        :param widget_instance: The instance of the widget to open.
+        """
+        self.main_window.tabs.addTab(widget_instance, widget_instance.__class__.__name__)
+        self.main_window.setCentralWidget(self.main_window.tabs)
 
 
 def main() -> None:
@@ -169,7 +95,8 @@ def main() -> None:
         stream = QTextStream(file)
         app.setStyleSheet(stream.readAll())
     else:
-        ...  # QMessageBox.warning(None, "Warning", "Failed to load stylesheet.")
+        ...
+        # QMessageBox.warning(None, "Warning", "Failed to load stylesheet.")
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())

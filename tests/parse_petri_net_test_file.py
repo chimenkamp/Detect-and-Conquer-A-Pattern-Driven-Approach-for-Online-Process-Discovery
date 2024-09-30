@@ -4,9 +4,6 @@ import pm4py
 from graphviz import Digraph
 from pm4py.objects.petri_net.obj import PetriNet
 
-from src.parsers.pattern_parser import PatternNode
-from src.utils.petri_net_renderer import render_petri_net
-
 
 def online_order_petri_net() -> PetriNet:
     # Define places

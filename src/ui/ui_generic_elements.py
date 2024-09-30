@@ -3,7 +3,7 @@ import math
 import sys
 import typing
 from random import uniform
-from typing import Callable, List
+from typing import Callable, List, Tuple, Any
 
 from PyQt5.QtCore import QRectF, QPointF, Qt, QPropertyAnimation, QObject, pyqtProperty, QTimer, pyqtSignal, QLineF
 from PyQt5.QtGui import QColor, QBrush, QPen, QPainter, QPainterPath, QPolygonF, QTransform
@@ -66,6 +66,13 @@ class EllipseElementWrapper(QObject):
 
 class CustomLineItem(QGraphicsPathItem):
     def __init__(self, start_item: QGraphicsItem, end_item: QGraphicsItem, scene: QGraphicsScene):
+        """
+        Initialize the CustomLineItem.
+
+        :param start_item: The starting QGraphicsItem.
+        :param end_item: The ending QGraphicsItem.
+        :param scene: The QGraphicsScene to which this item belongs.
+        """
         super().__init__()
         self.ANIMATION_FLAG: bool = False
         self.start_item = start_item
@@ -84,63 +91,116 @@ class CustomLineItem(QGraphicsPathItem):
         self.arrow_head.setZValue(0)
 
     def check_parents(self, start_item: QGraphicsItem, end_item: QGraphicsItem) -> bool:
+        """
+        Check if the given start and end items match this line's start and end items.
+
+        :param start_item: The starting QGraphicsItem.
+        :param end_item: The ending QGraphicsItem.
+        :return: True if both items match; False otherwise.
+        """
         return self.start_item == start_item and self.end_item == end_item
 
     def update_position(self, event: object) -> None:
+        """
+        Update the position of the line based on the current positions of the start and end items.
+
+        :param event: The event that triggered the update.
+        """
         path = self.calculate_manhattan_path(self.num_breaks)
         self.setPath(path)
         self.update_arrow_head()
 
     def calculate_manhattan_path(self, num_breaks: int) -> QPainterPath:
-        start_pos = self.get_intersection_with_edge(self.start_item, self.end_item)
-        end_pos = self.get_intersection_with_edge(self.end_item, self.start_item)
+        """
+        Calculate the path of the line using a Manhattan (right-angle) style.
+        Ensures the line always starts horizontally or vertically from the edge.
+        If the line is not at a 90-degree angle, invert the Manhattan break points.
+
+        :param num_breaks: Number of breaks (turns) in the line.
+        :return: The calculated QPainterPath.
+        """
+        num_breaks = num_breaks - 1
+        start_pos, start_direction = self.get_intersection_with_edge(self.start_item, self.end_item)
+        end_pos, end_direction = self.get_intersection_with_edge(self.end_item, self.start_item)
+
         path = QPainterPath(start_pos)
 
-        if num_breaks > 0:
-            delta_x = (end_pos.x() - start_pos.x()) / (num_breaks + 1)
-            delta_y = (end_pos.y() - start_pos.y()) / (num_breaks + 1)
-            current_pos = start_pos
-            for i in range(1, num_breaks + 1):
-                if i % 2 != 0:
-                    current_pos.setX(start_pos.x() + i * delta_x)
-                else:
-                    current_pos.setY(start_pos.y() + (i // 2) * delta_y)
-                path.lineTo(current_pos)
-            if num_breaks % 2 == 0:
-                current_pos.setY(end_pos.y())
+        if num_breaks == 0:
+            path.lineTo(end_pos)
+            return path
+
+        delta_x = (end_pos.x() - start_pos.x()) / (num_breaks + 1)
+        delta_y = (end_pos.y() - start_pos.y()) / (num_breaks + 1)
+        current_pos = start_pos
+
+        # Calculate potential break points
+        points = []
+        horizontal = not (start_direction in ["TOP", "BOTTOM"] and end_direction in ["TOP", "BOTTOM"])
+
+        for i in range(1, num_breaks + 1):
+            if horizontal:
+                current_pos.setX(current_pos.x() + delta_x)
             else:
-                current_pos.setX(end_pos.x())
-            path.lineTo(current_pos)
+                current_pos.setY(current_pos.y() + delta_y)
+            points.append(current_pos)
+            horizontal = not horizontal
+
+        for point in points:
+            path.lineTo(point)
+
+        # Ensure the last segment reaches the end point correctly
+        if horizontal:
+            current_pos.setX(end_pos.x())
+        else:
+            current_pos.setY(end_pos.y())
+        path.lineTo(current_pos)
+
         path.lineTo(end_pos)
+
+        # if start_direction in ["TOP", "BOTTOM"] and end_direction in ["TOP", "BOTTOM"]:
+        #     for j in range(len(points)):
+        #
+        #         if j % 2 == 0:
+        #             points[j].setX(end_pos.x() - (points[j].x() - start_pos.x()))
+        #         else:
+        #             points[j].setY(end_pos.y() - (points[j].y() - start_pos.y()))
         return path
 
-    def get_intersection_with_edge(self, source_item: QGraphicsItem, target_item: QGraphicsItem) -> QPointF:
+    def get_intersection_with_edge(self, source_item: QGraphicsItem, target_item: QGraphicsItem) -> tuple[QPointF, str]:
+        """
+        Calculate the intersection point of the line connecting source and target items with the edge of the source item.
+
+        :param source_item: The QGraphicsItem whose edge we are calculating.
+        :param target_item: The QGraphicsItem toward which the line is drawn.
+        :return: The QPointF where the line intersects with the edge of the source item.
+        """
         source_rect = source_item.sceneBoundingRect()
         target_rect = target_item.sceneBoundingRect()
-        source_center = source_rect.center()
-        target_center = target_rect.center()
 
-        line = QLineF(source_center, target_center)
-        intersections = []
+        edge_middle_point: typing.Dict[str, QPointF] = {
+            "TOP": QLineF(source_rect.topLeft(), source_rect.topRight()).center(),
+            "RIGHT": QLineF(source_rect.topRight(), source_rect.bottomRight()).center(),
+            "BOTTOM": QLineF(source_rect.bottomRight(), source_rect.bottomLeft()).center(),
+            "LEFT": QLineF(source_rect.bottomLeft(), source_rect.topLeft()).center()
+        }
 
-        edges = [
-            QLineF(source_rect.topLeft(), source_rect.topRight()),  # Top edge
-            QLineF(source_rect.topRight(), source_rect.bottomRight()),  # Right edge
-            QLineF(source_rect.bottomRight(), source_rect.bottomLeft()),  # Bottom edge
-            QLineF(source_rect.bottomLeft(), source_rect.topLeft())  # Left edge
-        ]
+        edge_middle_point_distance: dict[str, float] = {
+            "TOP": QLineF(edge_middle_point["TOP"], target_rect.center()).length(),
+            "RIGHT": QLineF(edge_middle_point["RIGHT"], target_rect.center()).length(),
+            "BOTTOM": QLineF(edge_middle_point["BOTTOM"], target_rect.center()).length(),
+            "LEFT": QLineF(edge_middle_point["LEFT"], target_rect.center()).length()
+        }
 
-        for edge in edges:
-            intersection_point = QPointF()
-            if line.intersect(edge, intersection_point) == QLineF.BoundedIntersection:
-                intersections.append(intersection_point)
+        position: str = min(edge_middle_point_distance, key=edge_middle_point_distance.get)
 
-        if intersections:
-            return intersections[0]
-        print("Fallback to center in get_intersection_with_edge()")
-        return source_center  # Fallback to center if no intersection found
+        return edge_middle_point[position], position
 
     def update_arrow_head(self) -> None:
+        """
+        Update the arrowhead at the end of the line.
+
+        :return: None.
+        """
         path = self.path()
         if path.isEmpty():
             return
@@ -171,6 +231,12 @@ class CustomLineItem(QGraphicsPathItem):
         self.arrow_head.update()
 
     def run_animation(self, scene: QGraphicsScene, on_finish: Callable[[], None] = None) -> None:
+        """
+        Run an animation along the line path.
+
+        :param scene: The QGraphicsScene in which the animation occurs.
+        :param on_finish: Callback function to call when the animation finishes.
+        """
         self.ANIMATION_FLAG = True
         scene.addItem(self.ellipse)
         animator = EllipseElementWrapper(self.ellipse)
@@ -184,6 +250,12 @@ class CustomLineItem(QGraphicsPathItem):
         self.animation = animation
 
     def _on_animation_finished(self, scene: QGraphicsScene, on_finish: Callable[[], None] = None) -> None:
+        """
+        Clean up after the animation finishes.
+
+        :param scene: The QGraphicsScene to remove the ellipse from.
+        :param on_finish: Callback function to call when the cleanup is done.
+        """
         scene.removeItem(self.ellipse)
         self.ANIMATION_FLAG = False
         if on_finish:
@@ -199,10 +271,15 @@ class CustomQGraphicsItem(QGraphicsItem):
         self.id: str = str(uuid.uuid4())
         self.pen = QPen(QColor(ITEM_PEN_COLOR), ITEM_PEN_WIDTH)
         self.brush = QBrush(QColor(self.attributes.get('fillcolor', ITEM_ORIGINAL_COLOR)))
-        self.rect = QRectF(float(attributes['pos'].split(',')[0]),
-                           float(attributes['pos'].split(',')[1]),
+
+        position: QPointF = QPointF(float(attributes['pos'].split(',')[0]), float(attributes['pos'].split(',')[1]))
+
+        self.rect = QRectF(position.x(),
+                           position.y(),
                            ELEMENT_WIDTH,
                            ELEMENT_HEIGHT)
+
+        self.setPos(position)
 
         self.navigation_buttons: List[QGraphicsRectItem] = []
         self.button_distance = 20  # Default distance
@@ -243,7 +320,23 @@ class CustomQGraphicsItem(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget) -> None:
         raise NotImplementedError("Subclasses should implement this!")
 
-    def itemChange(self, change, value):
+    def get_position(self) -> QPointF:
+        """
+        Get the current position of the item.
+
+        :return: Current position as QPointF.
+        """
+        return self.pos()
+
+    def itemChange(self, change: typing.Any, value: typing.Any) -> typing.Any:
+        """
+        Handle item change events, specifically updating the position and handling selection changes.
+
+        :param change: The type of change occurring.
+        :param value: The value associated with the change.
+        :return: The result of the superclass itemChange method.
+        """
+
         if change == QGraphicsItem.ItemSelectedChange and self.scene():
             if value:
                 self.is_selected = True
@@ -257,6 +350,8 @@ class CustomQGraphicsItem(QGraphicsItem):
 
     def mouseMoveEvent(self, event) -> None:
         super().mouseMoveEvent(event)
+        self.update()
+
         self.scene().on_element_moved.emit(event)
 
     def create_direction_buttons(self) -> None:
@@ -301,9 +396,9 @@ class CustomQGraphicsItem(QGraphicsItem):
         self.navigation_buttons.extend([right_button, left_button, top_button, bottom_button])
         self.toggle_navigation_buttons(False)
 
-    def toggle_navigation_buttons(self, show: bool):
+    def toggle_navigation_buttons(self, hide: bool):
         for button in self.navigation_buttons:
-            if show:
+            if hide:
                 button.show()
             else:
                 button.hide()

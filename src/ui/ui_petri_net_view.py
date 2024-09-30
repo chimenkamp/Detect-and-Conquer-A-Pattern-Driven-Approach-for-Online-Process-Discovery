@@ -2,16 +2,17 @@ import json
 import random
 import time
 import typing
+from copy import copy
 from typing import Tuple, List, Any
 
-from PyQt5.QtCore import pyqtSignal, QTimer, Qt
+from PyQt5.QtCore import pyqtSignal, QTimer, Qt, QPointF, QRectF
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QPushButton, QVBoxLayout, QWidget
 from graphviz import Digraph
 from pm4py import PetriNet, Marking
 from pm4py.objects.petri_net.utils import petri_utils
 
-from src.ui.ui_functions import create_connection
+from src.ui.ui_functions import create_connection, update_position_to_place_new_element
 from src.ui.ui_generic_elements import CustomQGraphicsItem, CustomLineItem, PlaceGraphicsItem, \
     TransitionGraphicsItem, get_post_area, get_marked_places, extr_e, create_styled_button, LINE_ANIMATION_DURATION
 from src.utils.petri_net_renderer import render_petri_net
@@ -21,6 +22,7 @@ class CustomScene(QGraphicsScene):
     on_element_moved = pyqtSignal(object)
     on_transition_fired = pyqtSignal(TransitionGraphicsItem)
     on_new_element_requested = pyqtSignal(object)
+
     # on_marking_added = pyqtSignal(object)
 
     def __init__(self, view: QGraphicsView):
@@ -83,10 +85,14 @@ class PetriNetEditorView(QGraphicsView):
                                            CustomQGraphicsItem,
                                            typing.Literal["top", "bottom", "right", "left"]]
                                        ):
+
         q_cf_element: CustomQGraphicsItem = element[0]
 
-        direction: str = element[1]
-        attributes: dict = {}
+        direction: typing.Literal["top", "bottom", "right", "left"] = element[1]
+
+        attributes: dict = copy(q_cf_element.attributes)
+        new_position: (int, int) = update_position_to_place_new_element(q_cf_element, direction)
+        attributes["pos"] = f"{new_position[0]}, {new_position[1]}"
 
         if isinstance(q_cf_element, PlaceGraphicsItem):
             node_item = PlaceGraphicsItem(attributes)
@@ -96,7 +102,6 @@ class PetriNetEditorView(QGraphicsView):
             self.scene.addItem(node_item)
         else:
             raise ValueError("Wrong process item instance")
-
 
     def _on_full_animation(self):
         def on_interval():

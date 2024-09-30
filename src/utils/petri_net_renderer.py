@@ -70,7 +70,7 @@ def apply_ranks(dot: Digraph, ranks: Dict[str, Set[str]]) -> None:
 def render_petri_net(net: PetriNet, render: bool = True) -> Digraph:
     dot = Digraph(comment='ONLINE ORDER SIMPLE')
 
-    default_width = "1"
+    default_width = "0.5"
     default_height = "1"
     max_label_length = 10
 
@@ -82,7 +82,8 @@ def render_petri_net(net: PetriNet, render: bool = True) -> Digraph:
     dot.attr(kw="node", height=default_height)
     dot.attr(nodesep='3.0')
     dot.attr(splines="ortho")
-
+    dot.attr(nodesep='0.5')
+    dot.attr(ranksep='0.5')
     ranks = {}
 
     add_places(dot, net.places, max_label_length)
